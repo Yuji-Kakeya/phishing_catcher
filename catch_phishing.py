@@ -28,7 +28,6 @@ l1_phish_feeds = get_phish_feed(1)
 l2_phish_feeds = get_phish_feed(2)
 l3_phish_feeds = get_phish_feed(3)
 
-
 certstream_url = 'wss://certstream.calidog.io'
 log_suspicious = os.path.dirname(os.path.realpath(__file__))+'/suspicious_domains_'+time.strftime("%Y-%m-%d")+'.log'
 suspicious_yaml = os.path.dirname(os.path.realpath(__file__))+'/suspicious.yaml'

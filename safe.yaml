@@ -283,5 +283,6 @@ end_words:
   - "windows.net"
   - "remotewd.com"
   - "ec2.aws.dev"
+  - "amazonaws.com.cn"
 keywords:
   - "test"

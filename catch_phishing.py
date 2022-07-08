@@ -23,21 +23,33 @@ from tld import get_tld
 
 from confusables import unconfuse
 
+
 certstream_url = 'wss://certstream.calidog.io'
-
 log_suspicious = os.path.dirname(os.path.realpath(__file__))+'/suspicious_domains_'+time.strftime("%Y-%m-%d")+'.log'
-
 suspicious_yaml = os.path.dirname(os.path.realpath(__file__))+'/suspicious.yaml'
-
 external_yaml = os.path.dirname(os.path.realpath(__file__))+'/external.yaml'
-
+safe_yaml = os.path.dirname(os.path.realpath(__file__))+'/safe.yaml'
 pbar = tqdm.tqdm(desc='certificate_update', unit='cert')
+
+fake_tld = ['com', 'net', 'org', "jp"]
+
+base_score = {
+    "tls": 20,
+    "entropy": 10,
+    "fake_tld": 50,
+    "hyphen": 5,
+    "dot": 5
+}
+
+
 
 def entropy(string):
     """Calculates the Shannon entropy of a string"""
     prob = [ float(string.count(c)) / len(string) for c in dict.fromkeys(list(string)) ]
     entropy = - sum([ p * math.log(p) / math.log(2.0) for p in prob ])
     return entropy
+
+
 
 def score_domain(domain):
     """Score `domain`.
@@ -50,24 +62,52 @@ def score_domain(domain):
     Returns:
         int: the score of `domain`.
     """
+
     score = 0
-    for t in suspicious['tlds']:
-        if domain.endswith(t):
-            score += 20
 
     # Remove initial '*.' for wildcard certificates bug
     if domain.startswith('*.'):
         domain = domain[2:]
 
-    # Removing TLD to catch inner TLD in subdomain (ie. paypal.com.domain.com)
+    # # Removing TLD to catch inner TLD in subdomain (ie. paypal.com.domain.com)
+    # try:
+    #     res = get_tld(domain, as_object=True, fail_silently=True, fix_protocol=True)
+    #     domain = '.'.join([res.subdomain, res.domain])
+    # except Exception:
+    #     pass
+
+    #Static Safe Domain
     try:
-        res = get_tld(domain, as_object=True, fail_silently=True, fix_protocol=True)
-        domain = '.'.join([res.subdomain, res.domain])
-    except Exception:
+        for end_word in safe['end_words']:
+            if domain.endswith(end_word):
+                return 0
+
+        for keyword in safe['keywords']:
+            if keyword in domain:
+                return 0
+    except:
         pass
 
+
+    #Static Suspicious Domain
+    try:
+        for end_word in suspicious['end_words']:
+            if domain.endswith(end_word):
+                score += suspicious['end_words'][end_word]
+
+        for keyword in suspicious['keywords']:
+            if keyword in domain:
+                score += suspicious['keywords'][keyword]
+
+        for tld in suspicious['tlds']:
+            if domain.endswith(tld):
+                score += base_score["tls"]
+    except:
+        pass
+
+
     # Higer entropy is kind of suspicious
-    score += int(round(entropy(domain)*10))
+    score += int(round(entropy(domain)*base_score["entropy"]))
 
     # Remove lookalike characters using list from http://www.unicode.org/reports/tr39
     domain = unconfuse(domain)
@@ -75,13 +115,10 @@ def score_domain(domain):
     words_in_domain = re.split("\W+", domain)
 
     # ie. detect fake .com (ie. *.com-account-management.info)
-    if words_in_domain[0] in ['com', 'net', 'org']:
-        score += 10
+    for word in words_in_domain[-1]:
+        if word in fake_tld:
+            score += base_score["fake_tld"]
 
-    # Testing keywords
-    for word in suspicious['keywords']:
-        if word in domain:
-            score += suspicious['keywords'][word]
 
     # Testing Levenshtein distance for strong keywords (>= 70 points) (ie. paypol)
     for key in [k for (k,s) in suspicious['keywords'].items() if s >= 70]:
@@ -92,11 +129,11 @@ def score_domain(domain):
 
     # Lots of '-' (ie. www.paypal-datacenter.com-acccount-alert.com)
     if 'xn--' not in domain and domain.count('-') >= 4:
-        score += domain.count('-') * 3
+        score += domain.count('-') * base_score["hyphen"]
 
     # Deeply nested subdomains (ie. www.paypal.com.security.accountupdate.gq)
     if domain.count('.') >= 3:
-        score += domain.count('.') * 3
+        score += domain.count('.') * base_score["dot"]
 
     return score
 
@@ -145,6 +182,9 @@ if __name__ == '__main__':
 
     with open(external_yaml, 'r') as f:
         external = yaml.safe_load(f)
+
+    with open(safe_yaml, 'r') as f:
+        safe = yaml.safe_load(f)
 
     if external['override_suspicious.yaml'] is True:
         suspicious = external
